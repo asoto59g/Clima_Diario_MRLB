@@ -1,0 +1,31 @@
+name: Ejecutar y actualizar bat diariamente
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Se ejecutará todos los días a las 00:00 UTC
+  workflow_dispatch: # Permite ejecutarlo manualmente desde la pestaña Actions
+
+jobs:
+  run-and-update-bat:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout del repositorio
+      uses: actions/checkout@v4
+
+    - name: abrir_dashboard.bat
+      run: |
+        call tu-archivo.bat
+      shell: cmd
+
+    - name: Configurar credenciales de Git
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+    - name: Guardar cambios y subir a GitHub
+      run: |
+        git add .
+        git commit -m "Actualización diaria automática del .bat"
+        git push origin main
+      continue-on-error: true
