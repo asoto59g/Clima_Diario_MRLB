@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Climático</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Algunas Variables Climaticas Aeropuerto Daniel Oduber</h1>
+            <p>A partir 13 abril 2026</p>
+            <div class="controls">
+                <button class="time-btn active" data-period="hora">Por Hora</button>
+                <button class="time-btn" data-period="dia">Por Día</button>
+                <button class="time-btn" data-period="custom" id="btn-custom">Por Selección</button>
+                <button class="time-btn" data-period="mes">Por Mes</button>
+                <button class="time-btn" data-period="año">Por Año</button>
+            </div>
+            <div id="selection-controls" class="selection-controls hidden">
+                <div class="selection-item">
+                    <label for="custom-day">Día:</label>
+                    <input type="date" id="custom-day" />
+                </div>
+                <div class="selection-item">
+                    <label for="custom-month">Mes:</label>
+                    <input type="month" id="custom-month" />
+                </div>
+                <button id="btn-apply-selection" class="nav-btn">Mostrar</button>
+            </div>
+            <div id="pagination-controls" class="pagination-controls">
+                <button id="btn-prev-day" class="nav-btn">&larr; Día Anterior</button>
+                <span id="current-day-label" class="current-day"></span>
+                <button id="btn-next-day" class="nav-btn">Día Siguiente &rarr;</button>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Temperatura Promedio (°C)</h2>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-temp"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Lluvia Acumulada (mm)</h2>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-lluvia"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Radiación Máxima (kw/hr/m2)</h2>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-radmax"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Presión Promedio (mb)</h2>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-presmb"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
