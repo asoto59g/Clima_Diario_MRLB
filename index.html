@@ -25,26 +25,22 @@
             <p>A partir 13 abril 2026</p>
             <div class="controls">
                 <button class="time-btn active" data-period="hora">Por Hora</button>
-                <button class="time-btn" data-period="dia">Por Día</button>
                 <button class="time-btn" data-period="custom" id="btn-custom">Por Selección</button>
                 <button class="time-btn" data-period="mes">Por Mes</button>
                 <button class="time-btn" data-period="año">Por Año</button>
             </div>
             <div id="selection-controls" class="selection-controls hidden">
                 <div class="selection-item">
-                    <label for="custom-day">Día:</label>
-                    <input type="date" id="custom-day" />
+                    <label for="custom-month">Mes (muestra los días del mes):</label>
+                    <input type="month" id="custom-month" title="Seleccionar mes (mostrará la serie diaria del mes seleccionado)" />
                 </div>
-                <div class="selection-item">
-                    <label for="custom-month">Mes:</label>
-                    <input type="month" id="custom-month" />
-                </div>
-                <button id="btn-apply-selection" class="nav-btn">Mostrar</button>
+                <button id="btn-apply-selection" class="nav-btn" title="Mostrar la serie diaria del mes seleccionado">Mostrar</button>
             </div>
-            <div id="pagination-controls" class="pagination-controls">
-                <button id="btn-prev-day" class="nav-btn">&larr; Día Anterior</button>
-                <span id="current-day-label" class="current-day"></span>
-                <button id="btn-next-day" class="nav-btn">Día Siguiente &rarr;</button>
+            <div id="pagination-controls" class="pagination-controls hidden">
+                <div class="selection-item">
+                    <label for="hourly-day-selector">Seleccionar Día:</label>
+                    <input type="date" id="hourly-day-selector" />
+                </div>
             </div>
         </header>
 

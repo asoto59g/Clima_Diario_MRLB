@@ -10,7 +10,6 @@ let globalData = [];
 let charts = {};
 let availableDays = [];
 let currentDayIndex = 0;
-let customDayKey = '';
 let customMonthKey = '';
 
 // Funciones de parseo
@@ -75,12 +74,11 @@ function loadData() {
             // Inicializar gráficos por hora (default)
             updateDashboard('hora');
 
-            const dayInput = document.getElementById('custom-day');
+            const daySelector = document.getElementById('hourly-day-selector');
             const monthInput = document.getElementById('custom-month');
-            if (dayInput && monthInput && availableDays.length > 0) {
-                dayInput.value = availableDays[currentDayIndex].dayKey;
+            if (daySelector && monthInput && availableDays.length > 0) {
+                daySelector.value = availableDays[currentDayIndex].dayKey;
                 monthInput.value = availableDays[currentDayIndex].dayKey.substring(0, 7);
-                customDayKey = dayInput.value;
                 customMonthKey = monthInput.value;
             }
         }
@@ -148,10 +146,7 @@ function aggregateData(data, period, customFilter = {}) {
         presmbAvg: g.presmbCount > 0 ? g.presmbSum / g.presmbCount : 0
     }));
 
-    if (period === 'custom' && customFilter.dayKey) {
-        let filtered = hourlyList.filter(g => g.dayKey === customFilter.dayKey);
-        return formatResult(filtered);
-    }
+    
 
     if (period === 'hora') {
         let currentDay = availableDays[currentDayIndex];
@@ -190,8 +185,6 @@ function aggregateData(data, period, customFilter = {}) {
         presmbAvg: g.presmbCount > 0 ? g.presmbSum / g.presmbCount : 0
     }));
 
-    if (period === 'dia') return formatResult(dailyList);
-
     // 3. Monthly
     let byMonth = {};
     dailyList.forEach(row => {
@@ -225,7 +218,23 @@ function aggregateData(data, period, customFilter = {}) {
     }));
 
     if (period === 'custom' && customFilter.monthKey) {
-        return formatResult(monthlyList.filter(r => r.key === customFilter.monthKey));
+        // Para selector por mes: construir la serie diaria completa del mes seleccionado
+        const parts = customFilter.monthKey.split('-').map(Number);
+        const y = parts[0];
+        const m = parts[1]; // 1-12
+        const daysInMonth = new Date(y, m, 0).getDate();
+
+        const dailyMap = Object.fromEntries(dailyList.map(d => [d.key, d]));
+        const fullDays = [];
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dayKey = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            if (dailyMap[dayKey]) {
+                fullDays.push(dailyMap[dayKey]);
+            } else {
+                fullDays.push({ key: dayKey, monthKey: customFilter.monthKey, yearKey: String(y), tempAvg: 0, tempMax: 0, tempMin: 0, lluvia: 0, radmax: 0, presmbAvg: 0 });
+            }
+        }
+        return formatResult(fullDays, true);
     }
 
     if (period === 'mes') return formatResult(monthlyList);
@@ -243,6 +252,12 @@ function aggregateData(data, period, customFilter = {}) {
         let g = byYear[row.yearKey];
         g.tempSum += row.tempAvg;
         g.tempCount += 1;
+
+            // Si la selección es por día (y no por mes), devolver horas del día seleccionado
+            if (period === 'custom' && customFilter.dayKey) {
+                let filtered = hourlyList.filter(g => g.dayKey === customFilter.dayKey);
+                return formatResult(filtered);
+            }
         if (row.tempMax > g.tempMax) g.tempMax = row.tempMax;
         if (row.tempMin < g.tempMin) g.tempMin = row.tempMin;
         g.lluviaSum += row.lluvia;
@@ -264,13 +279,23 @@ function aggregateData(data, period, customFilter = {}) {
 
     return formatResult(yearlyList);
 
-    function formatResult(list) {
+    function formatResult(list, dayOnly = false) {
         // Sort by key
         list.sort((a, b) => a.key.localeCompare(b.key));
         
         let res = { labels: [], tempAvg: [], tempMax: [], tempMin: [], lluvia: [], radmax: [], presmb: [] };
         list.forEach(item => {
-            res.labels.push(item.key);
+            if (dayOnly) {
+                // item.key expected format YYYY-MM-DD -> show day number without leading zeros
+                const parts = item.key.split('-');
+                if (parts.length === 3) {
+                    res.labels.push(String(Number(parts[2])));
+                } else {
+                    res.labels.push(item.key);
+                }
+            } else {
+                res.labels.push(item.key);
+            }
             res.tempAvg.push(item.tempAvg.toFixed(2));
             res.tempMax.push(item.tempMax.toFixed(2));
             res.tempMin.push(item.tempMin.toFixed(2));
@@ -338,9 +363,9 @@ function updateDashboard(period) {
         if (period === 'hora') {
             paginationControls.classList.remove('hidden');
             const currentDay = availableDays[currentDayIndex];
-            document.getElementById('current-day-label').innerText = currentDay ? currentDay.label : '';
-            document.getElementById('btn-prev-day').disabled = currentDayIndex === 0;
-            document.getElementById('btn-next-day').disabled = currentDayIndex === availableDays.length - 1;
+            if (currentDay) {
+                document.getElementById('hourly-day-selector').value = currentDay.dayKey;
+            }
         } else {
             paginationControls.classList.add('hidden');
         }
@@ -374,34 +399,27 @@ document.querySelectorAll('.time-btn').forEach(btn => {
     });
 });
 
-document.getElementById('btn-prev-day').addEventListener('click', () => {
-    if (currentDayIndex > 0) {
-        currentDayIndex--;
-        updateDashboard('hora');
-    }
-});
-
-document.getElementById('btn-next-day').addEventListener('click', () => {
-    if (currentDayIndex < availableDays.length - 1) {
-        currentDayIndex++;
-        updateDashboard('hora');
-    }
-});
-
 document.getElementById('btn-apply-selection').addEventListener('click', () => {
-    customDayKey = document.getElementById('custom-day').value;
     customMonthKey = document.getElementById('custom-month').value;
-    if (!customDayKey && !customMonthKey) {
-        alert('Seleccione un día o un mes para mostrar los gráficos.');
+    if (!customMonthKey) {
+        alert('Seleccione un mes para mostrar los gráficos.');
         return;
     }
     updateDashboard('custom');
 });
 
+document.getElementById('hourly-day-selector').addEventListener('change', (e) => {
+    const selectedDay = e.target.value; // YYYY-MM-DD format
+    const dayIndex = availableDays.findIndex(d => d.dayKey === selectedDay);
+    if (dayIndex !== -1) {
+        currentDayIndex = dayIndex;
+        updateDashboard('hora');
+    }
+});
+
 function getCurrentCustomFilter() {
-    customDayKey = document.getElementById('custom-day').value;
     customMonthKey = document.getElementById('custom-month').value;
-    return { dayKey: customDayKey, monthKey: customMonthKey };
+    return { dayKey: '', monthKey: customMonthKey };
 }
 
 // Init
