@@ -15,7 +15,7 @@ jobs:
 
     - name: abrir_dashboard.bat
       run: |
-        call tu-archivo.bat
+        call abrir_dashboard.bat
       shell: cmd
 
     - name: Configurar credenciales de Git
