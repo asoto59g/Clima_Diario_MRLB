@@ -1,0 +1,48 @@
+name: Ejecutar actualizar_datos.py diariamente
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ejecutar-script:
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: |
+          if exist requirements.txt (
+            python -m pip install -r requirements.txt
+          )
+
+      - name: Configurar credenciales Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Ejecutar script Python
+        run: |
+          python actualizar_datos.py
+
+      - name: Guardar cambios y subir a GitHub
+        run: |
+          git add .
+          git diff --cached --quiet && echo "Sin cambios para commit" && exit /b 0
+          git commit -m "Actualización automática diaria"
+          git push origin main
