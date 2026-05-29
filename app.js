@@ -78,6 +78,8 @@ function loadData() {
             const monthInput = document.getElementById('custom-month');
             if (daySelector && monthInput && availableDays.length > 0) {
                 daySelector.value = availableDays[currentDayIndex].dayKey;
+                daySelector.min = availableDays[0].dayKey;
+                daySelector.max = availableDays[availableDays.length - 1].dayKey;
                 monthInput.value = availableDays[currentDayIndex].dayKey.substring(0, 7);
                 customMonthKey = monthInput.value;
             }
@@ -239,6 +241,11 @@ function aggregateData(data, period, customFilter = {}) {
 
     if (period === 'mes') return formatResult(monthlyList);
 
+    if (period === 'custom' && customFilter.dayKey) {
+        let filtered = hourlyList.filter(g => g.dayKey === customFilter.dayKey);
+        return formatResult(filtered);
+    }
+
     // 4. Yearly
     let byYear = {};
     monthlyList.forEach(row => {
@@ -252,12 +259,6 @@ function aggregateData(data, period, customFilter = {}) {
         let g = byYear[row.yearKey];
         g.tempSum += row.tempAvg;
         g.tempCount += 1;
-
-            // Si la selección es por día (y no por mes), devolver horas del día seleccionado
-            if (period === 'custom' && customFilter.dayKey) {
-                let filtered = hourlyList.filter(g => g.dayKey === customFilter.dayKey);
-                return formatResult(filtered);
-            }
         if (row.tempMax > g.tempMax) g.tempMax = row.tempMax;
         if (row.tempMin < g.tempMin) g.tempMin = row.tempMin;
         g.lluviaSum += row.lluvia;
@@ -408,14 +409,19 @@ document.getElementById('btn-apply-selection').addEventListener('click', () => {
     updateDashboard('custom');
 });
 
-document.getElementById('hourly-day-selector').addEventListener('change', (e) => {
-    const selectedDay = e.target.value; // YYYY-MM-DD format
-    const dayIndex = availableDays.findIndex(d => d.dayKey === selectedDay);
-    if (dayIndex !== -1) {
-        currentDayIndex = dayIndex;
-        updateDashboard('hora');
-    }
-});
+const hourlyDaySelector = document.getElementById('hourly-day-selector');
+if (hourlyDaySelector) {
+    ['input', 'change'].forEach(eventType => {
+        hourlyDaySelector.addEventListener(eventType, (e) => {
+            const selectedDay = e.target.value; // YYYY-MM-DD format
+            const dayIndex = availableDays.findIndex(d => d.dayKey === selectedDay);
+            if (dayIndex !== -1) {
+                currentDayIndex = dayIndex;
+                updateDashboard('hora');
+            }
+        });
+    });
+}
 
 function getCurrentCustomFilter() {
     customMonthKey = document.getElementById('custom-month').value;
