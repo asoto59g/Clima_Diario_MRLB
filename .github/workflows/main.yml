@@ -49,4 +49,4 @@ jobs:
           git add .
           git diff --cached --quiet && echo "Sin cambios para commit" && exit /b 0
           git commit -m "Actualización automática diaria"
-          git push origin main
+          git push
