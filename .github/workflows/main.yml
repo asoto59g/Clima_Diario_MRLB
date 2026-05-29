@@ -26,21 +26,25 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
+        shell: cmd
         run: |
           if exist requirements.txt (
             python -m pip install -r requirements.txt
           )
 
       - name: Configurar credenciales Git
+        shell: cmd
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Ejecutar script Python
+        shell: cmd
         run: |
           python actualizar_datos.py
 
       - name: Guardar cambios y subir a GitHub
+        shell: cmd
         run: |
           git add .
           git diff --cached --quiet && echo "Sin cambios para commit" && exit /b 0
