@@ -140,6 +140,8 @@ function aggregateData(data, period, customFilter = {}) {
 
     let hourlyList = Object.values(byHour).map(g => ({
         key: g.key, dayKey: g.dayKey, monthKey: g.monthKey, yearKey: g.yearKey,
+        hourLabel: g.key.split(' ')[1],
+        hourValue: Number(g.key.split(' ')[1].split(':')[0]),
         tempAvg: g.tempCount > 0 ? g.tempSum / g.tempCount : 0,
         tempMax: g.tempMax === -Infinity ? 0 : g.tempMax,
         tempMin: g.tempMin === Infinity ? 0 : g.tempMin,
@@ -153,7 +155,7 @@ function aggregateData(data, period, customFilter = {}) {
     if (period === 'hora') {
         let currentDay = availableDays[currentDayIndex];
         let filtered = hourlyList.filter(g => g.dayKey === (currentDay ? currentDay.dayKey : ''));
-        return formatResult(filtered);
+        return formatResult(filtered, false, true);
     }
 
     // 2. Daily
@@ -280,9 +282,17 @@ function aggregateData(data, period, customFilter = {}) {
 
     return formatResult(yearlyList);
 
-    function formatResult(list, dayOnly = false) {
-        // Sort by key
-        list.sort((a, b) => a.key.localeCompare(b.key));
+    function formatResult(list, dayOnly = false, useHourLabel = false) {
+        // Sort correctly for hourly chronological data within the meteorological day
+        if (useHourLabel) {
+            list.sort((a, b) => {
+                const aHour = a.hourValue >= 0 ? (a.hourValue < 7 ? a.hourValue + 24 : a.hourValue) : a.hourValue;
+                const bHour = b.hourValue >= 0 ? (b.hourValue < 7 ? b.hourValue + 24 : b.hourValue) : b.hourValue;
+                return aHour - bHour;
+            });
+        } else {
+            list.sort((a, b) => a.key.localeCompare(b.key));
+        }
         
         let res = { labels: [], tempAvg: [], tempMax: [], tempMin: [], lluvia: [], radmax: [], presmb: [] };
         list.forEach(item => {
@@ -294,6 +304,8 @@ function aggregateData(data, period, customFilter = {}) {
                 } else {
                     res.labels.push(item.key);
                 }
+            } else if (useHourLabel && item.hourLabel) {
+                res.labels.push(item.hourLabel);
             } else {
                 res.labels.push(item.key);
             }
