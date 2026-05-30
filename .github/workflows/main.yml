@@ -2,7 +2,7 @@ name: Ejecutar actualizar_datos.py diariamente
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 13 * * *'
   workflow_dispatch:
 
 permissions:
