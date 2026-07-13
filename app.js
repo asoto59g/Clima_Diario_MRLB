@@ -16,61 +16,17 @@ let customMonthKey = '';
 const DEBUG_DATES = true;
 const EXPECTED_MIN_YEAR = 2013;
 const EXPECTED_MAX_YEAR = new Date().getFullYear() + 1;
-const MAX_ANOMALIES_TO_LOG = 30;
+const MAX_ANOMALIES_TO_LOG = 50;
 
-// Funciones de parseo
-function parseDate(dateStr) {
-    if (!dateStr) return null;
-
-    const parts = dateStr.trim().split(/\s+/);
-    if (parts.length < 2) return null;
-
-    const dmy = parts[0].split('/');
-    const hm = parts[1].split(':');
-    if (dmy.length !== 3 || hm.length < 2) return null;
-
-    const day = parseInt(dmy[0], 10);
-    const month = parseInt(dmy[1], 10) - 1;
-
-    let yearRaw = parseInt(dmy[2], 10);
-    if (isNaN(yearRaw)) return null;
-
-    // Fix clave: años de 2 dígitos (13) no deben interpretarse como 1913
-    const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
-
-    let hour = parseInt(hm[0], 10);
-    const minute = parseInt(hm[1], 10);
-
-    if (isNaN(day) || isNaN(month) || isNaN(hour) || isNaN(minute)) return null;
-
-    // Soporta variantes AM/PM: "a.m.", "p.m.", "am", "pm", etc.
-    const ampm = parts.slice(2).join('').toLowerCase().replace(/\./g, '');
-    if (ampm.startsWith('p') && hour < 12) hour += 12;
-    if (ampm.startsWith('a') && hour === 12) hour = 0;
-
-    return new Date(year, month, day, hour, minute);
-}
-
-function parseNum(numStr) {
-    if (numStr === null || numStr === undefined || numStr === '') return 0;
-    const clean = numStr.toString().trim().replace(/\./g, '').replace(/,/g, '.');
-    const val = parseFloat(clean);
-    return isNaN(val) ? 0 : val;
-}
-
-function getFechaFromRow(row) {
-    if (row.fecha) return row.fecha;
-    if (row['fecha_hora']) return row['fecha_hora'];
-    if (row['fecha hora']) return row['fecha hora'];
-
-    const fechaKey = Object.keys(row).find(k => k.toLowerCase().includes('fecha'));
-    if (fechaKey) return row[fechaKey];
-
-    // Fallback por índice: cols[1]
-    const vals = Object.values(row);
-    if (vals.length > 1) return vals[1];
-
-    return '';
+// Utilidades
+function normalizeHeaderKey(h) {
+    return (h || '')
+        .toString()
+        .replace(/^\uFEFF/, '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
 }
 
 function isDateOutOfExpectedRange(d) {
@@ -89,21 +45,116 @@ function debugDateSummary(rows, anomalies) {
     const maxDate = validDates.length ? new Date(Math.max(...validDates.map(d => d.getTime()))) : null;
 
     console.group('Diagnóstico de fechas CSV');
-    console.log('Total filas parseadas:', rows.length);
-    console.log('Fechas válidas:', validDates.length);
+    console.log('Total filas válidas:', rows.length);
     console.log('Año mínimo detectado:', years.length ? Math.min(...years) : 'N/A');
     console.log('Año máximo detectado:', years.length ? Math.max(...years) : 'N/A');
     console.log('Fecha mínima detectada:', minDate ? minDate.toISOString() : 'N/A');
     console.log('Fecha máxima detectada:', maxDate ? maxDate.toISOString() : 'N/A');
-    console.log('Anomalías fuera de rango:', anomalies.length);
+    console.log('Anomalías:', anomalies.length);
 
     if (anomalies.length) {
         console.table(anomalies.slice(0, MAX_ANOMALIES_TO_LOG));
         if (anomalies.length > MAX_ANOMALIES_TO_LOG) {
-            console.warn(`Se muestran solo ${MAX_ANOMALIES_TO_LOG} anomalías de ${anomalies.length}.`);
+            console.warn(`Se muestran ${MAX_ANOMALIES_TO_LOG} de ${anomalies.length} anomalías.`);
         }
     }
+
     console.groupEnd();
+}
+
+// Parseo de fecha robusto
+function parseDate(dateStr) {
+    if (!dateStr) return null;
+
+    const raw = dateStr.toString().trim().replace(/^\uFEFF/, '');
+    if (!raw) return null;
+
+    // Formato principal esperado: dd/mm/yyyy hh:mm[:ss] [am|pm|a.m.|p.m.]
+    // También soporta dd-mm-yyyy y yyyy-mm-dd
+    const m1 = raw.match(
+        /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap]\.?m?\.?)?$/i
+    );
+
+    const m2 = raw.match(
+        /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap]\.?m?\.?)?$/i
+    );
+
+    let day, month, year, hour, minute, second = 0, ampm = '';
+
+    if (m1) {
+        day = parseInt(m1[1], 10);
+        month = parseInt(m1[2], 10);
+        const yearToken = m1[3];
+        year = parseInt(yearToken, 10);
+        hour = parseInt(m1[4], 10);
+        minute = parseInt(m1[5], 10);
+        second = m1[6] ? parseInt(m1[6], 10) : 0;
+        ampm = (m1[7] || '').toLowerCase().replace(/\./g, '');
+
+        if (yearToken.length === 2) year = 2000 + year;
+    } else if (m2) {
+        year = parseInt(m2[1], 10);
+        month = parseInt(m2[2], 10);
+        day = parseInt(m2[3], 10);
+        hour = parseInt(m2[4], 10);
+        minute = parseInt(m2[5], 10);
+        second = m2[6] ? parseInt(m2[6], 10) : 0;
+        ampm = (m2[7] || '').toLowerCase().replace(/\./g, '');
+    } else {
+        return null;
+    }
+
+    if ([day, month, year, hour, minute, second].some(v => isNaN(v))) return null;
+
+    if (ampm.startsWith('p') && hour < 12) hour += 12;
+    if (ampm.startsWith('a') && hour === 12) hour = 0;
+
+    const d = new Date(year, month - 1, day, hour, minute, second, 0);
+
+    // Validación de rollover de fecha (evita 32/01 o mes 13)
+    if (
+        d.getFullYear() !== year ||
+        d.getMonth() !== (month - 1) ||
+        d.getDate() !== day
+    ) return null;
+
+    // Regla de negocio para este dataset
+    if (isDateOutOfExpectedRange(d)) return null;
+
+    return d;
+}
+
+function parseNum(numStr) {
+    if (numStr === null || numStr === undefined || numStr === '') return 0;
+    const clean = numStr.toString().trim().replace(/\./g, '').replace(/,/g, '.');
+    const val = parseFloat(clean);
+    return isNaN(val) ? 0 : val;
+}
+
+function getFechaFromRow(row, metaInfo) {
+    const keys = Object.keys(row || {});
+    const normalizedMap = {};
+    keys.forEach(k => {
+        normalizedMap[normalizeHeaderKey(k)] = k;
+    });
+
+    // Prioridad por nombre semántico
+    const candidates = ['fecha', 'fechahora', 'fecha_hora', 'fecha hora', 'datetime', 'date'];
+    for (const c of candidates) {
+        if (normalizedMap[c]) return row[normalizedMap[c]];
+    }
+
+    // Fallback fuerte por índice: cols[1] (según lo que reportaste)
+    if (metaInfo && Array.isArray(metaInfo.rawFields) && metaInfo.rawFields.length > 1) {
+        const fieldAt1 = metaInfo.rawFields[1];
+        if (fieldAt1 in row) return row[fieldAt1];
+    }
+
+    // Último fallback por valor posicional
+    const vals = Object.values(row);
+    if (vals.length > 1) return vals[1];
+
+    return '';
 }
 
 // Cargar y procesar CSV
@@ -112,47 +163,50 @@ function loadData() {
         header: true,
         delimiter: ';',
         skipEmptyLines: true,
-        // Fix BOM + normalización de encabezados
-        transformHeader: h => h.replace(/^\uFEFF/, '').trim().toLowerCase(),
+        transformHeader: h => h.replace(/^\uFEFF/, '').trim(),
         complete: function(results) {
+            const rawFields = (results.meta && results.meta.fields) ? results.meta.fields.slice() : [];
+            const metaInfo = { rawFields };
+
+            if (DEBUG_DATES) {
+                console.group('Meta CSV');
+                console.log('Headers detectados:', rawFields);
+                console.log('Primeras 3 filas crudas:', results.data.slice(0, 3));
+                console.groupEnd();
+            }
+
             const anomalies = [];
             const parsedRows = results.data.map((row, index) => {
-                const fechaRaw = getFechaFromRow(row);
+                const fechaRaw = getFechaFromRow(row, metaInfo);
                 const parsedDate = parseDate(fechaRaw);
 
-                if (DEBUG_DATES) {
-                    if (!parsedDate) {
-                        anomalies.push({
-                            row: index + 1,
-                            tipo: 'fecha_no_parseable',
-                            fechaRaw
-                        });
-                    } else if (isDateOutOfExpectedRange(parsedDate)) {
-                        anomalies.push({
-                            row: index + 1,
-                            tipo: 'fecha_fuera_de_rango',
-                            fechaRaw,
-                            iso: parsedDate.toISOString(),
-                            year: parsedDate.getFullYear()
-                        });
-                    }
+                if (DEBUG_DATES && !parsedDate) {
+                    anomalies.push({
+                        row: index + 1,
+                        tipo: 'fecha_invalida_o_fuera_rango',
+                        fechaRaw
+                    });
                 }
 
                 return {
                     date: parsedDate,
                     temp: parseNum(row.temp),
                     lluvia: parseNum(row.lluvia),
-                    // Multiplicar radiación por 60
                     radmax: parseNum(row.radmax) * 60,
                     presmb: parseNum(row.presmb)
                 };
             });
 
-            globalData = parsedRows.filter(row => row.date !== null);
+            globalData = parsedRows.filter(r => r.date !== null);
 
             debugDateSummary(globalData, anomalies);
 
-            // Extraer días únicos usando el día meteorológico (inicio 07:00)
+            // Si por nombre no está leyendo variables, intentar fallback por coincidencia flexible
+            if (globalData.length > 0 && globalData.every(r => r.temp === 0 && r.lluvia === 0 && r.radmax === 0 && r.presmb === 0)) {
+                console.warn('Posible desalineación de columnas numéricas. Revisa encabezados reales del CSV.');
+            }
+
+            // Extraer días únicos usando día meteorológico (inicio 07:00)
             const daysSet = new Set();
             globalData.forEach(r => {
                 const { dayKey } = getMeteoKeys(r.date);
@@ -164,10 +218,9 @@ function loadData() {
                 label: formatMeteoDayLabel(dayKey)
             }));
 
-            // Iniciar en segundo día si existe, si no en el primero
-            currentDayIndex = availableDays.length > 1 ? 1 : 0;
+            // Mostrar primer día disponible para evitar desplazamientos
+            currentDayIndex = 0;
 
-            // Inicializar gráficos por hora (default)
             updateDashboard('hora');
 
             const daySelector = document.getElementById('hourly-day-selector');
@@ -183,8 +236,7 @@ function loadData() {
     });
 }
 
-// Clave de día meteorológico: el día empieza a las 07:00 y termina a las 06:59 del siguiente día
-// Las horas 00:00-06:59 pertenecen al día meteorológico del día anterior
+// Clave de día meteorológico
 function getMeteoKeys(d) {
     const meteoDate = new Date(d);
     if (d.getHours() < 7) {
@@ -212,8 +264,8 @@ function formatMeteoDayLabel(dayKey) {
 
 // Agregación de datos
 function aggregateData(data, period, customFilter = {}) {
-    // 1. Hourly
     const byHour = {};
+
     data.forEach(row => {
         const d = row.date;
         const { dayKey, monthKey, yearKey, hourKey } = getMeteoKeys(d);
@@ -258,7 +310,6 @@ function aggregateData(data, period, customFilter = {}) {
         return formatResult(filtered, false, true);
     }
 
-    // 2. Daily
     const byDay = {};
     hourlyList.forEach(row => {
         if (!byDay[row.dayKey]) {
@@ -292,7 +343,6 @@ function aggregateData(data, period, customFilter = {}) {
         presmbAvg: g.presmbCount > 0 ? g.presmbSum / g.presmbCount : 0
     }));
 
-    // 3. Monthly
     const byMonth = {};
     dailyList.forEach(row => {
         if (!byMonth[row.monthKey]) {
@@ -364,7 +414,6 @@ function aggregateData(data, period, customFilter = {}) {
         return formatResult(filtered);
     }
 
-    // 4. Yearly
     const byYear = {};
     monthlyList.forEach(row => {
         if (!byYear[row.yearKey]) {
@@ -491,7 +540,6 @@ function updateDashboard(period) {
         paginationControls.classList.add('hidden');
     } else {
         selectionControls.classList.add('hidden');
-
         if (period === 'hora') {
             paginationControls.classList.remove('hidden');
             const currentDay = availableDays[currentDayIndex];
