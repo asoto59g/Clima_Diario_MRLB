@@ -15,30 +15,58 @@ let customMonthKey = '';
 // Funciones de parseo
 function parseDate(dateStr) {
     if (!dateStr) return null;
-    let parts = dateStr.trim().split(' ');
-    if (parts.length < 3) return null;
-    let dmy = parts[0].split('/');
-    let hm = parts[1].split(':');
-    let ampm = parts[2].toLowerCase();
-    
-    let day = parseInt(dmy[0], 10);
-    let month = parseInt(dmy[1], 10) - 1;
-    let year = parseInt(dmy[2], 10);
-    
+
+    const parts = dateStr.trim().split(/\s+/);
+    if (parts.length < 2) return null;
+
+    const dmy = parts[0].split('/');
+    const hm = parts[1].split(':');
+    if (dmy.length !== 3 || hm.length < 2) return null;
+
+    const day = parseInt(dmy[0], 10);
+    const month = parseInt(dmy[1], 10) - 1;
+
+    let yearRaw = parseInt(dmy[2], 10);
+    if (isNaN(yearRaw)) return null;
+
+    // Fix clave: años de 2 dígitos (13) no deben interpretarse como 1913
+    const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+
     let hour = parseInt(hm[0], 10);
-    let minute = parseInt(hm[1], 10);
-    
-    if ((ampm.includes('p') || ampm.includes('m')) && ampm !== 'a.m.' && hour < 12) hour += 12;
-    if (ampm.includes('a') && hour === 12) hour = 0;
-    
+    const minute = parseInt(hm[1], 10);
+
+    if (isNaN(day) || isNaN(month) || isNaN(hour) || isNaN(minute)) return null;
+
+    // Soporta AM/PM con variantes: "a.m.", "p.m.", "am", "pm", etc.
+    const ampm = parts.slice(2).join('').toLowerCase().replace(/\./g, '');
+    if (ampm.startsWith('p') && hour < 12) hour += 12;
+    if (ampm.startsWith('a') && hour === 12) hour = 0;
+
     return new Date(year, month, day, hour, minute);
 }
 
 function parseNum(numStr) {
-    if (!numStr) return 0;
-    let clean = numStr.toString().replace(/\./g, '').replace(/,/g, '.');
-    let val = parseFloat(clean);
+    if (numStr === null || numStr === undefined || numStr === '') return 0;
+    const clean = numStr.toString().trim().replace(/\./g, '').replace(/,/g, '.');
+    const val = parseFloat(clean);
     return isNaN(val) ? 0 : val;
+}
+
+function getFechaFromRow(row) {
+    // Prioridad por nombre estándar
+    if (row.fecha) return row.fecha;
+    if (row['fecha_hora']) return row['fecha_hora'];
+    if (row['fecha hora']) return row['fecha hora'];
+
+    // Fallback robusto: buscar primera columna que contenga "fecha"
+    const fechaKey = Object.keys(row).find(k => k.toLowerCase().includes('fecha'));
+    if (fechaKey) return row[fechaKey];
+
+    // Último fallback: segunda columna por índice (cols[1]) si existe
+    const vals = Object.values(row);
+    if (vals.length > 1) return vals[1];
+
+    return '';
 }
 
 // Cargar y procesar CSV
@@ -47,10 +75,13 @@ function loadData() {
         header: true,
         delimiter: ';',
         skipEmptyLines: true,
+        // Fix BOM + normalización de encabezados
+        transformHeader: h => h.replace(/^\uFEFF/, '').trim().toLowerCase(),
         complete: function(results) {
             globalData = results.data.map(row => {
+                const fechaRaw = getFechaFromRow(row);
                 return {
-                    date: parseDate(row.fecha),
+                    date: parseDate(fechaRaw),
                     temp: parseNum(row.temp),
                     lluvia: parseNum(row.lluvia),
                     // Multiplicar radiación por 60
@@ -58,19 +89,22 @@ function loadData() {
                     presmb: parseNum(row.presmb)
                 };
             }).filter(row => row.date !== null);
-            
+
             // Extraer días únicos usando el día meteorológico (inicio 07:00)
-            let daysSet = new Set();
+            const daysSet = new Set();
             globalData.forEach(r => {
-                let { dayKey } = getMeteoKeys(r.date);
+                const { dayKey } = getMeteoKeys(r.date);
                 daysSet.add(dayKey);
             });
+
             availableDays = Array.from(daysSet).sort().map(dayKey => ({
                 dayKey,
                 label: formatMeteoDayLabel(dayKey)
             }));
-            currentDayIndex = 1; // Iniciar en el segundo día (el primero puede tener datos incompletos)
-            
+
+            // Iniciar en segundo día si existe, si no en el primero
+            currentDayIndex = availableDays.length > 1 ? 1 : 0;
+
             // Inicializar gráficos por hora (default)
             updateDashboard('hora');
 
@@ -90,14 +124,16 @@ function loadData() {
 // Clave de día meteorológico: el día empieza a las 07:00 y termina a las 06:59 del siguiente día
 // Las horas 00:00-06:59 pertenecen al día meteorológico del día anterior
 function getMeteoKeys(d) {
-    let meteoDate = new Date(d);
+    const meteoDate = new Date(d);
     if (d.getHours() < 7) {
         meteoDate.setDate(meteoDate.getDate() - 1);
     }
-    let dayKey   = `${meteoDate.getFullYear()}-${String(meteoDate.getMonth()+1).padStart(2,'0')}-${String(meteoDate.getDate()).padStart(2,'0')}`;
-    let monthKey = `${meteoDate.getFullYear()}-${String(meteoDate.getMonth()+1).padStart(2,'0')}`;
-    let yearKey  = `${meteoDate.getFullYear()}`;
-    let hourKey  = `${dayKey} ${String(d.getHours()).padStart(2,'0')}:00`;
+
+    const dayKey = `${meteoDate.getFullYear()}-${String(meteoDate.getMonth() + 1).padStart(2, '0')}-${String(meteoDate.getDate()).padStart(2, '0')}`;
+    const monthKey = `${meteoDate.getFullYear()}-${String(meteoDate.getMonth() + 1).padStart(2, '0')}`;
+    const yearKey = `${meteoDate.getFullYear()}`;
+    const hourKey = `${dayKey} ${String(d.getHours()).padStart(2, '0')}:00`;
+
     return { dayKey, monthKey, yearKey, hourKey };
 }
 
@@ -108,17 +144,17 @@ function formatMeteoDayLabel(dayKey) {
     end.setDate(end.getDate() + 1);
     end.setHours(6, 59, 0, 0);
 
-    const formatDate = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    const formatDate = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     return `${formatDate(start)} 07:00 - ${formatDate(end)} 06:59`;
 }
 
 // Agregación de datos
 function aggregateData(data, period, customFilter = {}) {
     // 1. Hourly
-    let byHour = {};
+    const byHour = {};
     data.forEach(row => {
-        let d = row.date;
-        let { dayKey, monthKey, yearKey, hourKey } = getMeteoKeys(d);
+        const d = row.date;
+        const { dayKey, monthKey, yearKey, hourKey } = getMeteoKeys(d);
 
         if (!byHour[hourKey]) {
             byHour[hourKey] = {
@@ -127,7 +163,8 @@ function aggregateData(data, period, customFilter = {}) {
                 lluviaSum: 0, radmaxSum: 0, presmbSum: 0, presmbCount: 0
             };
         }
-        let g = byHour[hourKey];
+
+        const g = byHour[hourKey];
         g.tempSum += row.temp;
         g.tempCount += 1;
         if (row.temp > g.tempMax) g.tempMax = row.temp;
@@ -138,8 +175,11 @@ function aggregateData(data, period, customFilter = {}) {
         g.presmbCount += 1;
     });
 
-    let hourlyList = Object.values(byHour).map(g => ({
-        key: g.key, dayKey: g.dayKey, monthKey: g.monthKey, yearKey: g.yearKey,
+    const hourlyList = Object.values(byHour).map(g => ({
+        key: g.key,
+        dayKey: g.dayKey,
+        monthKey: g.monthKey,
+        yearKey: g.yearKey,
         hourLabel: g.key.split(' ')[1],
         hourValue: Number(g.key.split(' ')[1].split(':')[0]),
         tempAvg: g.tempCount > 0 ? g.tempSum / g.tempCount : 0,
@@ -150,16 +190,14 @@ function aggregateData(data, period, customFilter = {}) {
         presmbAvg: g.presmbCount > 0 ? g.presmbSum / g.presmbCount : 0
     }));
 
-    
-
     if (period === 'hora') {
-        let currentDay = availableDays[currentDayIndex];
-        let filtered = hourlyList.filter(g => g.dayKey === (currentDay ? currentDay.dayKey : ''));
+        const currentDay = availableDays[currentDayIndex];
+        const filtered = hourlyList.filter(g => g.dayKey === (currentDay ? currentDay.dayKey : ''));
         return formatResult(filtered, false, true);
     }
 
     // 2. Daily
-    let byDay = {};
+    const byDay = {};
     hourlyList.forEach(row => {
         if (!byDay[row.dayKey]) {
             byDay[row.dayKey] = {
@@ -168,29 +206,32 @@ function aggregateData(data, period, customFilter = {}) {
                 lluviaSum: 0, radmaxSum: 0, presmbSum: 0, presmbCount: 0
             };
         }
-        let g = byDay[row.dayKey];
+
+        const g = byDay[row.dayKey];
         g.tempSum += row.tempAvg;
         g.tempCount += 1;
         if (row.tempMax > g.tempMax) g.tempMax = row.tempMax;
         if (row.tempMin < g.tempMin) g.tempMin = row.tempMin;
         g.lluviaSum += row.lluvia;
-        g.radmaxSum += row.radmax; // Sum for daily
+        g.radmaxSum += row.radmax;
         g.presmbSum += row.presmbAvg;
         g.presmbCount += 1;
     });
 
-    let dailyList = Object.values(byDay).map(g => ({
-        key: g.key, monthKey: g.monthKey, yearKey: g.yearKey,
+    const dailyList = Object.values(byDay).map(g => ({
+        key: g.key,
+        monthKey: g.monthKey,
+        yearKey: g.yearKey,
         tempAvg: g.tempCount > 0 ? g.tempSum / g.tempCount : 0,
         tempMax: g.tempMax === -Infinity ? 0 : g.tempMax,
         tempMin: g.tempMin === Infinity ? 0 : g.tempMin,
         lluvia: g.lluviaSum,
-        radmax: g.radmaxSum, // Sum of hourly
+        radmax: g.radmaxSum,
         presmbAvg: g.presmbCount > 0 ? g.presmbSum / g.presmbCount : 0
     }));
 
     // 3. Monthly
-    let byMonth = {};
+    const byMonth = {};
     dailyList.forEach(row => {
         if (!byMonth[row.monthKey]) {
             byMonth[row.monthKey] = {
@@ -199,57 +240,70 @@ function aggregateData(data, period, customFilter = {}) {
                 lluviaSum: 0, radmaxSum: 0, radmaxCount: 0, presmbSum: 0, presmbCount: 0
             };
         }
-        let g = byMonth[row.monthKey];
+
+        const g = byMonth[row.monthKey];
         g.tempSum += row.tempAvg;
         g.tempCount += 1;
         if (row.tempMax > g.tempMax) g.tempMax = row.tempMax;
         if (row.tempMin < g.tempMin) g.tempMin = row.tempMin;
         g.lluviaSum += row.lluvia;
-        g.radmaxSum += row.radmax; // Average daily for monthly
+        g.radmaxSum += row.radmax;
         g.radmaxCount += 1;
         g.presmbSum += row.presmbAvg;
         g.presmbCount += 1;
     });
 
-    let monthlyList = Object.values(byMonth).map(g => ({
-        key: g.key, yearKey: g.yearKey,
+    const monthlyList = Object.values(byMonth).map(g => ({
+        key: g.key,
+        yearKey: g.yearKey,
         tempAvg: g.tempCount > 0 ? g.tempSum / g.tempCount : 0,
         tempMax: g.tempMax === -Infinity ? 0 : g.tempMax,
         tempMin: g.tempMin === Infinity ? 0 : g.tempMin,
         lluvia: g.lluviaSum,
-        radmax: g.radmaxCount > 0 ? g.radmaxSum / g.radmaxCount : 0, // Avg of daily
+        radmax: g.radmaxCount > 0 ? g.radmaxSum / g.radmaxCount : 0,
         presmbAvg: g.presmbCount > 0 ? g.presmbSum / g.presmbCount : 0
     }));
 
     if (period === 'custom' && customFilter.monthKey) {
-        // Para selector por mes: construir la serie diaria completa del mes seleccionado
         const parts = customFilter.monthKey.split('-').map(Number);
         const y = parts[0];
-        const m = parts[1]; // 1-12
+        const m = parts[1];
         const daysInMonth = new Date(y, m, 0).getDate();
 
         const dailyMap = Object.fromEntries(dailyList.map(d => [d.key, d]));
         const fullDays = [];
+
         for (let day = 1; day <= daysInMonth; day++) {
             const dayKey = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             if (dailyMap[dayKey]) {
                 fullDays.push(dailyMap[dayKey]);
             } else {
-                fullDays.push({ key: dayKey, monthKey: customFilter.monthKey, yearKey: String(y), tempAvg: 0, tempMax: 0, tempMin: 0, lluvia: 0, radmax: 0, presmbAvg: 0 });
+                fullDays.push({
+                    key: dayKey,
+                    monthKey: customFilter.monthKey,
+                    yearKey: String(y),
+                    tempAvg: 0,
+                    tempMax: 0,
+                    tempMin: 0,
+                    lluvia: 0,
+                    radmax: 0,
+                    presmbAvg: 0
+                });
             }
         }
+
         return formatResult(fullDays, true);
     }
 
     if (period === 'mes') return formatResult(monthlyList);
 
     if (period === 'custom' && customFilter.dayKey) {
-        let filtered = hourlyList.filter(g => g.dayKey === customFilter.dayKey);
+        const filtered = hourlyList.filter(g => g.dayKey === customFilter.dayKey);
         return formatResult(filtered);
     }
 
     // 4. Yearly
-    let byYear = {};
+    const byYear = {};
     monthlyList.forEach(row => {
         if (!byYear[row.yearKey]) {
             byYear[row.yearKey] = {
@@ -258,32 +312,32 @@ function aggregateData(data, period, customFilter = {}) {
                 lluviaSum: 0, radmaxSum: 0, radmaxCount: 0, presmbSum: 0, presmbCount: 0
             };
         }
-        let g = byYear[row.yearKey];
+
+        const g = byYear[row.yearKey];
         g.tempSum += row.tempAvg;
         g.tempCount += 1;
         if (row.tempMax > g.tempMax) g.tempMax = row.tempMax;
         if (row.tempMin < g.tempMin) g.tempMin = row.tempMin;
         g.lluviaSum += row.lluvia;
-        g.radmaxSum += row.radmax; // Average monthly for yearly
+        g.radmaxSum += row.radmax;
         g.radmaxCount += 1;
         g.presmbSum += row.presmbAvg;
         g.presmbCount += 1;
     });
 
-    let yearlyList = Object.values(byYear).map(g => ({
+    const yearlyList = Object.values(byYear).map(g => ({
         key: g.key,
         tempAvg: g.tempCount > 0 ? g.tempSum / g.tempCount : 0,
         tempMax: g.tempMax === -Infinity ? 0 : g.tempMax,
         tempMin: g.tempMin === Infinity ? 0 : g.tempMin,
         lluvia: g.lluviaSum,
-        radmax: g.radmaxCount > 0 ? g.radmaxSum / g.radmaxCount : 0, // Avg of monthly
+        radmax: g.radmaxCount > 0 ? g.radmaxSum / g.radmaxCount : 0,
         presmbAvg: g.presmbCount > 0 ? g.presmbSum / g.presmbCount : 0
     }));
 
     return formatResult(yearlyList);
 
     function formatResult(list, dayOnly = false, useHourLabel = false) {
-        // Sort correctly for hourly chronological data within the meteorological day
         if (useHourLabel) {
             list.sort((a, b) => {
                 const aHour = a.hourValue >= 0 ? (a.hourValue < 7 ? a.hourValue + 24 : a.hourValue) : a.hourValue;
@@ -293,11 +347,11 @@ function aggregateData(data, period, customFilter = {}) {
         } else {
             list.sort((a, b) => a.key.localeCompare(b.key));
         }
-        
-        let res = { labels: [], tempAvg: [], tempMax: [], tempMin: [], lluvia: [], radmax: [], presmb: [] };
+
+        const res = { labels: [], tempAvg: [], tempMax: [], tempMin: [], lluvia: [], radmax: [], presmb: [] };
+
         list.forEach(item => {
             if (dayOnly) {
-                // item.key expected format YYYY-MM-DD -> show day number without leading zeros
                 const parts = item.key.split('-');
                 if (parts.length === 3) {
                     res.labels.push(String(Number(parts[2])));
@@ -309,13 +363,15 @@ function aggregateData(data, period, customFilter = {}) {
             } else {
                 res.labels.push(item.key);
             }
-            res.tempAvg.push(item.tempAvg.toFixed(2));
-            res.tempMax.push(item.tempMax.toFixed(2));
-            res.tempMin.push(item.tempMin.toFixed(2));
-            res.lluvia.push(item.lluvia.toFixed(2));
-            res.radmax.push(item.radmax.toFixed(2));
-            res.presmb.push(item.presmbAvg.toFixed(2));
+
+            res.tempAvg.push(Number(item.tempAvg).toFixed(2));
+            res.tempMax.push(Number(item.tempMax).toFixed(2));
+            res.tempMin.push(Number(item.tempMin).toFixed(2));
+            res.lluvia.push(Number(item.lluvia).toFixed(2));
+            res.radmax.push(Number(item.radmax).toFixed(2));
+            res.presmb.push(Number(item.presmbAvg).toFixed(2));
         });
+
         return res;
     }
 }
@@ -323,12 +379,11 @@ function aggregateData(data, period, customFilter = {}) {
 // Crear/Actualizar Gráficos
 function renderChart(id, type, labels, datasetsConfig) {
     const ctx = document.getElementById(id).getContext('2d');
-    
+
     if (charts[id]) {
         charts[id].destroy();
     }
-    
-    // Default config Chart.js
+
     Chart.defaults.font.family = "'Inter', sans-serif";
     Chart.defaults.color = '#718096';
 
@@ -368,11 +423,13 @@ function renderChart(id, type, labels, datasetsConfig) {
 function updateDashboard(period) {
     const paginationControls = document.getElementById('pagination-controls');
     const selectionControls = document.getElementById('selection-controls');
+
     if (period === 'custom') {
         selectionControls.classList.remove('hidden');
         paginationControls.classList.add('hidden');
     } else {
         selectionControls.classList.add('hidden');
+
         if (period === 'hora') {
             paginationControls.classList.remove('hidden');
             const currentDay = availableDays[currentDayIndex];
@@ -385,18 +442,21 @@ function updateDashboard(period) {
     }
 
     const aggData = aggregateData(globalData, period, period === 'custom' ? getCurrentCustomFilter() : {});
-    
+
     renderChart('chart-temp', 'line', aggData.labels, [
         { label: 'Máxima (°C)', data: aggData.tempMax, borderColor: '#c53030', backgroundColor: 'transparent', borderWidth: 2, tension: 0.4, pointRadius: 2, pointHoverRadius: 5, fill: false },
         { label: 'Promedio (°C)', data: aggData.tempAvg, borderColor: colors.temp.border, backgroundColor: colors.temp.bg, borderWidth: 2, tension: 0.4, pointRadius: 3, pointHoverRadius: 6, fill: true },
         { label: 'Mínima (°C)', data: aggData.tempMin, borderColor: '#2b6cb0', backgroundColor: 'transparent', borderWidth: 2, tension: 0.4, pointRadius: 2, pointHoverRadius: 5, fill: false }
     ]);
+
     renderChart('chart-lluvia', 'bar', aggData.labels, [
         { label: 'Lluvia Acumulada (mm)', data: aggData.lluvia, borderColor: colors.lluvia.border, backgroundColor: colors.lluvia.bg, borderWidth: 2 }
     ]);
+
     renderChart('chart-radmax', 'bar', aggData.labels, [
         { label: 'Radiación Acum. (kw/hr/m2)', data: aggData.radmax, borderColor: colors.radmax.border, backgroundColor: colors.radmax.bg, borderWidth: 2 }
     ]);
+
     renderChart('chart-presmb', 'line', aggData.labels, [
         { label: 'Presión Promedio (mb)', data: aggData.presmb, borderColor: colors.presmb.border, backgroundColor: colors.presmb.bg, borderWidth: 2, tension: 0.4, pointRadius: 3, pointHoverRadius: 6, fill: true }
     ]);
@@ -425,7 +485,7 @@ const hourlyDaySelector = document.getElementById('hourly-day-selector');
 if (hourlyDaySelector) {
     ['input', 'change'].forEach(eventType => {
         hourlyDaySelector.addEventListener(eventType, (e) => {
-            const selectedDay = e.target.value; // YYYY-MM-DD format
+            const selectedDay = e.target.value;
             const dayIndex = availableDays.findIndex(d => d.dayKey === selectedDay);
             if (dayIndex !== -1) {
                 currentDayIndex = dayIndex;
