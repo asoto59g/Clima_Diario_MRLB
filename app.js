@@ -12,6 +12,12 @@ let availableDays = [];
 let currentDayIndex = 0;
 let customMonthKey = '';
 
+// Configuración de diagnóstico temporal
+const DEBUG_DATES = true;
+const EXPECTED_MIN_YEAR = 2013;
+const EXPECTED_MAX_YEAR = new Date().getFullYear() + 1;
+const MAX_ANOMALIES_TO_LOG = 30;
+
 // Funciones de parseo
 function parseDate(dateStr) {
     if (!dateStr) return null;
@@ -37,7 +43,7 @@ function parseDate(dateStr) {
 
     if (isNaN(day) || isNaN(month) || isNaN(hour) || isNaN(minute)) return null;
 
-    // Soporta AM/PM con variantes: "a.m.", "p.m.", "am", "pm", etc.
+    // Soporta variantes AM/PM: "a.m.", "p.m.", "am", "pm", etc.
     const ampm = parts.slice(2).join('').toLowerCase().replace(/\./g, '');
     if (ampm.startsWith('p') && hour < 12) hour += 12;
     if (ampm.startsWith('a') && hour === 12) hour = 0;
@@ -53,20 +59,51 @@ function parseNum(numStr) {
 }
 
 function getFechaFromRow(row) {
-    // Prioridad por nombre estándar
     if (row.fecha) return row.fecha;
     if (row['fecha_hora']) return row['fecha_hora'];
     if (row['fecha hora']) return row['fecha hora'];
 
-    // Fallback robusto: buscar primera columna que contenga "fecha"
     const fechaKey = Object.keys(row).find(k => k.toLowerCase().includes('fecha'));
     if (fechaKey) return row[fechaKey];
 
-    // Último fallback: segunda columna por índice (cols[1]) si existe
+    // Fallback por índice: cols[1]
     const vals = Object.values(row);
     if (vals.length > 1) return vals[1];
 
     return '';
+}
+
+function isDateOutOfExpectedRange(d) {
+    if (!(d instanceof Date) || isNaN(d.getTime())) return true;
+    const y = d.getFullYear();
+    return y < EXPECTED_MIN_YEAR || y > EXPECTED_MAX_YEAR;
+}
+
+function debugDateSummary(rows, anomalies) {
+    if (!DEBUG_DATES) return;
+
+    const validDates = rows.map(r => r.date).filter(d => d instanceof Date && !isNaN(d.getTime()));
+    const years = validDates.map(d => d.getFullYear());
+
+    const minDate = validDates.length ? new Date(Math.min(...validDates.map(d => d.getTime()))) : null;
+    const maxDate = validDates.length ? new Date(Math.max(...validDates.map(d => d.getTime()))) : null;
+
+    console.group('Diagnóstico de fechas CSV');
+    console.log('Total filas parseadas:', rows.length);
+    console.log('Fechas válidas:', validDates.length);
+    console.log('Año mínimo detectado:', years.length ? Math.min(...years) : 'N/A');
+    console.log('Año máximo detectado:', years.length ? Math.max(...years) : 'N/A');
+    console.log('Fecha mínima detectada:', minDate ? minDate.toISOString() : 'N/A');
+    console.log('Fecha máxima detectada:', maxDate ? maxDate.toISOString() : 'N/A');
+    console.log('Anomalías fuera de rango:', anomalies.length);
+
+    if (anomalies.length) {
+        console.table(anomalies.slice(0, MAX_ANOMALIES_TO_LOG));
+        if (anomalies.length > MAX_ANOMALIES_TO_LOG) {
+            console.warn(`Se muestran solo ${MAX_ANOMALIES_TO_LOG} anomalías de ${anomalies.length}.`);
+        }
+    }
+    console.groupEnd();
 }
 
 // Cargar y procesar CSV
@@ -78,17 +115,42 @@ function loadData() {
         // Fix BOM + normalización de encabezados
         transformHeader: h => h.replace(/^\uFEFF/, '').trim().toLowerCase(),
         complete: function(results) {
-            globalData = results.data.map(row => {
+            const anomalies = [];
+            const parsedRows = results.data.map((row, index) => {
                 const fechaRaw = getFechaFromRow(row);
+                const parsedDate = parseDate(fechaRaw);
+
+                if (DEBUG_DATES) {
+                    if (!parsedDate) {
+                        anomalies.push({
+                            row: index + 1,
+                            tipo: 'fecha_no_parseable',
+                            fechaRaw
+                        });
+                    } else if (isDateOutOfExpectedRange(parsedDate)) {
+                        anomalies.push({
+                            row: index + 1,
+                            tipo: 'fecha_fuera_de_rango',
+                            fechaRaw,
+                            iso: parsedDate.toISOString(),
+                            year: parsedDate.getFullYear()
+                        });
+                    }
+                }
+
                 return {
-                    date: parseDate(fechaRaw),
+                    date: parsedDate,
                     temp: parseNum(row.temp),
                     lluvia: parseNum(row.lluvia),
                     // Multiplicar radiación por 60
                     radmax: parseNum(row.radmax) * 60,
                     presmb: parseNum(row.presmb)
                 };
-            }).filter(row => row.date !== null);
+            });
+
+            globalData = parsedRows.filter(row => row.date !== null);
+
+            debugDateSummary(globalData, anomalies);
 
             // Extraer días únicos usando el día meteorológico (inicio 07:00)
             const daysSet = new Set();
